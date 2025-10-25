@@ -2,45 +2,582 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <title>Mini Notion Editor</title>
+  <title>Mini Notion Editor — Pro + Bubble + Highlight/BG/InlineCode</title>
   <style>
-    body { font-family: sans-serif; background:#f5f5f5; padding:20px; }
-    .block { background:#fff; margin:8px 0; padding:10px; border-radius:6px; }
-    .block[contenteditable="true"]:focus { outline:2px solid #0078ff; }
+    :root{
+      --bg:#f5f5f5; --card:#fff; --ink:#222; --muted:#777; --blue:#0078ff; --border:#e6e6e6;
+      --drag:#6aa6ff; --drop:#cfe2ff; --sel:#94bfff55; --sel-border:#5791ff;
+    }
+    *{ box-sizing:border-box }
+    html,body{ height:100% }
+    body{ font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans KR",sans-serif; background:var(--bg); color:var(--ink); margin:0 }
+    header{
+      position:sticky; top:0; z-index:10; background:linear-gradient(#ffffff, #fafafa);
+      border-bottom:1px solid var(--border); padding:10px 16px; display:flex; align-items:center; gap:10px;
+    }
+    header .title{ font-weight:700 }
+    header .spacer{ flex:1 }
+    header button{ border:1px solid var(--border); background:#fff; border-radius:8px; padding:6px 10px; cursor:pointer }
+    header button:hover{ background:#f6f9ff }
+    #settings{
+      position:absolute; right:16px; top:48px; background:#fff; border:1px solid var(--border); border-radius:10px; padding:10px; display:none;
+      box-shadow:0 8px 24px rgba(0,0,0,.08); width:280px
+    }
+    #settings label{ display:flex; justify-content:space-between; gap:8px; margin:6px 0; font-size:13px }
+    #settings input{ width:100px }
+
+    .hint{ max-width:900px; margin:10px auto; color:#666; font-size:13px; padding:0 16px }
+    .hint code{ background:#eef2ff; border:1px solid #dbe2ff; padding:2px 6px; border-radius:6px }
+
+    #editor{ max-width:900px; margin:0 auto 80px; min-height:60vh; position:relative; padding:16px }
+    .blocks{ list-style:none; margin:0; padding:0 }
+
+    .block{
+      background:var(--card); border:1px solid var(--border); border-radius:10px;
+      padding:12px 14px; margin:10px 0; position:relative;
+    }
+    .block.dragging{ opacity:.6 }
+    .block.drag-over-before{ box-shadow:0 -3px 0 0 var(--drag) inset }
+    .block.drag-over-after{  box-shadow:0  3px 0 0 var(--drag) inset }
+    .block.selected{ outline:2px solid var(--sel-border); background:var(--sel) }
+
+    .handle{ position:absolute; left:-28px; top:12px; width:18px; height:18px; cursor:grab;
+             display:flex; align-items:center; justify-content:center; color:#999; user-select:none }
+    .block:hover .handle{ color:#666 }
+    .editable[contenteditable="true"]:focus{ outline:2px solid var(--blue); border-radius:6px }
+
+    .block[data-type="h1"] .editable{ font-size:28px; font-weight:800; letter-spacing:-.2px }
+    .block[data-type="h2"] .editable{ font-size:22px; font-weight:700 }
+    .block[data-type="h3"] .editable{ font-size:18px; font-weight:700 }
+    .block[data-type="quote"]{ border-left:4px solid var(--blue); background:#f8fbff }
+    .block[data-type="quote"] .editable{ color:#0c3a66 }
+
+    .block[data-type="code"] .editable{
+      font-family:ui-monospace,Menlo,Consolas,monospace; white-space:pre; overflow:auto;
+      background:#0f172a; color:#e6edf3; border-radius:8px; padding:10px; min-height:38px
+    }
+    .block[data-type="bulleted"] .editable{ padding-left:1.2em; position:relative }
+    .block[data-type="bulleted"] .editable:before{ content:"•"; position:absolute; left:0; top:0; color:#333 }
+    .block[data-type="numbered"] .editable{ padding-left:1.6em; position:relative }
+    .block[data-type="numbered"] .editable[data-li]:before{ content: attr(data-li) ". "; position:absolute; left:0; color:#333 }
+
+    .todo-wrap{ display:flex; align-items:flex-start; gap:8px }
+    .todo-wrap input[type="checkbox"]{ margin-top:6px }
+    .todo-wrap .editable{ flex:1 }
+
+    .image-wrap{ display:flex; flex-direction:column; gap:8px }
+    .image-wrap img{ width:100%; height:auto; border-radius:8px; background:#fafafa; border:1px solid var(--border) }
+    .caption{ color:#666; font-size:13px; padding:6px 8px; border:1px dashed #ddd; border-radius:6px }
+    .caption[contenteditable="true"]:empty:before{ content:"캡션을 입력하세요…"; color:#aaa }
+
+    .toggle{ display:flex; flex-direction:column; gap:8px }
+    .toggle-head{ display:flex; align-items:center; gap:8px }
+    .toggle-caret{
+      width:24px; height:24px; border:1px solid var(--border); border-radius:6px;
+      display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none; background:#fafafa;
+    }
+    .toggle-caret .arrow{ transition: transform .15s ease; }
+    .toggle.open .toggle-caret .arrow{ transform: rotate(90deg); }
+    .toggle-icon{
+      width:24px; height:24px; border:1px dashed var(--border); border-radius:6px; display:flex;
+      align-items:center; justify-content:center; cursor:pointer; user-select:none; background:#fff; color:#444;
+    }
+    .toggle-icon.empty{ color:#bbb }
+    .toggle-summary{ flex:1; min-height:22px }
+    .toggle-body{ padding:8px 10px; border-left:3px solid #e9eefc; background:#fbfdff; border-radius:6px }
+    .toggle-body[hidden]{ display:none; }
+    .toggle-body .blocks{ margin-left:8px }
+
+    #slash-menu{
+      position:absolute; z-index:1000; background:#fff; border:1px solid var(--border);
+      border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.08); min-width:260px; display:none
+    }
+    #slash-menu header{ font-size:12px; color:var(--muted); padding:8px 10px; border-bottom:1px solid var(--border) }
+    #slash-menu .item{ display:flex; gap:10px; padding:10px; cursor:pointer; align-items:center }
+    #slash-menu .item:hover, #slash-menu .item.active{ background:#eef5ff }
+    #slash-menu .item .name{ font-weight:600 }
+    #slash-menu .item .desc{ font-size:12px; color:var(--muted) }
+    #slash-menu .kbd{ margin-left:auto; font-size:11px; color:#999; border:1px solid #ddd; padding:2px 6px; border-radius:6px }
+
+    #drop-mask{ position:fixed; inset:0; background:rgba(106,166,255,.08); border:4px dashed var(--drop);
+      display:none; z-index:9999; pointer-events:none; }
+
+    /* === Bubble Toolbar === */
+    #bubble{
+      position:absolute; top:0; left:0; transform: translate(-50%, -130%);
+      background:#111; color:#fff; border-radius:10px; padding:6px; display:none; z-index:2000;
+      box-shadow:0 8px 24px rgba(0,0,0,.25); border:1px solid rgba(255,255,255,.1);
+      gap:6px; align-items:center;
+    }
+    #bubble .btn{
+      display:inline-flex; align-items:center; justify-content:center; min-width:28px; height:28px;
+      padding:0 6px; border-radius:6px; cursor:pointer; user-select:none; font-size:13px; background:transparent; color:#fff; border:none;
+    }
+    #bubble .btn:hover{ background:rgba(255,255,255,.15) }
+    #bubble .sep{ width:1px; height:20px; background:rgba(255,255,255,.18); margin:0 4px }
+    #bubble .btn.active{ background:rgba(255,255,255,.25) }
+
+    #bubble .color-pop, #bubble .bg-pop{
+      position:absolute; top:100%; left:50%; transform:translate(-50%, 8px);
+      background:#fff; border:1px solid var(--border); border-radius:10px; padding:8px; display:none; gap:6px;
+      box-shadow:0 8px 24px rgba(0,0,0,.18);
+    }
+    #bubble .swatch{
+      width:18px; height:18px; border-radius:4px; border:1px solid #ddd; cursor:pointer;
+    }
+    #bubble .swatch[data-name="default"]{ background:#222 }
+    #bubble .swatch[data-name="clear"]{ background:conic-gradient(#fff 0 25%, #ccc 25% 50%, #fff 50% 75%, #ccc 75% 100%); position:relative }
+    #bubble .swatch[data-name="clear"]::after{ content:"×"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#d00; font-weight:700 }
+
+    /* inline code look */
+    .editable code.inline-code{
+      background:#f1f5f9; border:1px solid #e2e8f0; border-radius:6px; padding:0 4px;
+      font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.95em; color:#0b3b69;
+      white-space:pre-wrap;
+    }
   </style>
 </head>
 <body>
-  <div id="editor"></div>
+  <header>
+    <div class="title">Mini Notion Editor — Pro</div>
+    <div class="spacer"></div>
+    <button id="expand-all">모두 펼치기 (Ctrl+Alt+])</button>
+    <button id="collapse-all">모두 접기 (Ctrl+Alt+[)</button>
+    <button id="btn-settings">⚙️ Settings</button>
+    <div id="settings">
+      <div style="font-weight:700; margin-bottom:6px;">이미지 압축</div>
+      <label>사용 <input id="opt-compress" type="checkbox" checked /></label>
+      <label>최대 가로폭(px) <input id="opt-maxw" type="number" value="1600" min="300" max="6000"/></label>
+      <label>JPEG 품질(0.1~1.0) <input id="opt-quality" type="number" step="0.1" value="0.85" min="0.1" max="1.0"/></label>
+    </div>
+  </header>
+
+  <div class="hint">
+    드래그로 텍스트 선택하면 버블 툴바가 뜹니다: <b>B I U</b>, 취소선, 링크, <b>글자색(A)</b>, <b>배경색(BG)</b>, <b>하이라이트(🖍)</b>, <b>인라인코드(</> )</b><br/>
+    “전환(▾)”은 선택된 범위에 걸친 블록들을 토글/문단으로 바꿉니다.
+  </div>
+
+  <div id="editor" class="blocks"></div>
+
+  <!-- Slash menu -->
+  <div id="slash-menu" role="listbox" aria-label="Slash commands">
+    <header>블록 추가/변환</header>
+    <div class="list"></div>
+  </div>
+
+  <div id="drop-mask"></div>
+  <input id="hidden-file" type="file" accept="image/*" multiple style="display:none" />
+
+  <!-- === Floating Bubble Toolbar === -->
+  <div id="bubble" aria-label="Formatting toolbar">
+    <button class="btn" data-cmd="toggle-block" title="전환(토글 목록)">▾</button>
+    <div class="sep"></div>
+    <button class="btn" data-cmd="bold" title="굵게"><b>B</b></button>
+    <button class="btn" data-cmd="italic" title="기울임"><i>I</i></button>
+    <button class="btn" data-cmd="underline" title="밑줄"><u>U</u></button>
+    <button class="btn" data-cmd="strikeThrough" title="취소선"><span>S</span></button>
+    <div class="sep"></div>
+    <button class="btn" data-cmd="link" title="링크">🔗</button>
+    <div class="sep"></div>
+    <button class="btn" id="btn-color" title="텍스트 색">A</button>
+    <div class="color-pop" id="color-pop">
+      <div class="swatch" data-name="default" data-color="#222" title="기본"></div>
+      <div class="swatch" data-color="#e11d48" title="Red"></div>
+      <div class="swatch" data-color="#ea580c" title="Orange"></div>
+      <div class="swatch" data-color="#ca8a04" title="Yellow"></div>
+      <div class="swatch" data-color="#16a34a" title="Green"></div>
+      <div class="swatch" data-color="#0891b2" title="Teal"></div>
+      <div class="swatch" data-color="#2563eb" title="Blue"></div>
+      <div class="swatch" data-color="#7c3aed" title="Purple"></div>
+      <div class="swatch" data-name="clear" title="색상 제거"></div>
+    </div>
+    <button class="btn" id="btn-bg" title="텍스트 배경색">BG</button>
+    <div class="bg-pop" id="bg-pop">
+      <div class="swatch" data-color="#fff59d" title="Yellow"></div>
+      <div class="swatch" data-color="#fca5a5" title="Red"></div>
+      <div class="swatch" data-color="#c7d2fe" title="Indigo"></div>
+      <div class="swatch" data-color="#99f6e4" title="Teal"></div>
+      <div class="swatch" data-color="#fde68a" title="Amber"></div>
+      <div class="swatch" data-color="#bbf7d0" title="Green"></div>
+      <div class="swatch" data-color="#e9d5ff" title="Purple"></div>
+      <div class="swatch" data-color="#f3f4f6" title="Gray"></div>
+      <div class="swatch" data-name="clear" title="배경 제거"></div>
+    </div>
+    <button class="btn" data-cmd="highlight" title="빠른 하이라이트(노란 배경)">🖍</button>
+    <div class="sep"></div>
+    <button class="btn" data-cmd="inline-code" title="인라인 코드 토글"><span style="font-family:ui-monospace,Menlo,Consolas,monospace">&lt;/&gt;</span></button>
+  </div>
 
   <script>
-    const editor = document.getElementById('editor');
+    /* ======= 기존 편집기 핵심(요약) + 버블 포맷 추가 ======= */
+    const Settings = { compress:true, maxWidth:1600, quality:0.85, STORAGE:'mini-notion-pro-settings' };
+    (function loadSettings(){ try{ Object.assign(Settings, JSON.parse(localStorage.getItem(Settings.STORAGE)||'{}')||{});}catch{}
+      document.getElementById('opt-compress').checked = !!Settings.compress;
+      document.getElementById('opt-maxw').value = Settings.maxWidth;
+      document.getElementById('opt-quality').value = Settings.quality;
+    })();
+    function saveSettings(){
+      Settings.compress = document.getElementById('opt-compress').checked;
+      Settings.maxWidth = +document.getElementById('opt-maxw').value || 1600;
+      Settings.quality  = +document.getElementById('opt-quality').value || 0.85;
+      localStorage.setItem(Settings.STORAGE, JSON.stringify(Settings));
+    }
+    document.getElementById('btn-settings').addEventListener('click', ()=>{
+      const s = document.getElementById('settings'); s.style.display = s.style.display==='block' ? 'none' : 'block';
+    });
+    document.getElementById('settings').addEventListener('change', saveSettings);
 
-    function createBlock(type='paragraph', content='') {
-      const div = document.createElement('div');
-      div.className = 'block';
-      div.contentEditable = true;
-      div.dataset.type = type;
-      div.innerHTML = content;
-      div.addEventListener('keydown', e => {
-        // Enter 눌렀을 때 새 블록 추가
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          const newBlock = createBlock();
-          editor.insertBefore(newBlock, div.nextSibling);
-          newBlock.focus();
-        }
-        // Backspace로 비어있을 때 삭제
-        if (e.key === 'Backspace' && div.innerText.trim() === '') {
-          const prev = div.previousElementSibling;
-          div.remove();
-          prev?.focus();
-        }
+    const STORAGE_KEY = 'mini-notion-pro-doc-v3';
+    const COMMANDS = [
+      { id:'paragraph', name:'Paragraph', desc:'일반 문단' },
+      { id:'h1', name:'Heading 1', desc:'가장 큰 제목' },
+      { id:'h2', name:'Heading 2', desc:'중간 제목' },
+      { id:'h3', name:'Heading 3', desc:'작은 제목' },
+      { id:'todo', name:'To-do', desc:'체크리스트' },
+      { id:'quote', name:'Quote', desc:'인용문' },
+      { id:'code', name:'Code', desc:'코드 블록' },
+      { id:'bulleted', name:'Bulleted list', desc:'글머리 기호' },
+      { id:'numbered', name:'Numbered list', desc:'번호 목록' },
+      { id:'img', name:'Image', desc:'이미지 추가' },
+      { id:'toggle', name:'Toggle list', desc:'펼치기/접기 (중첩 가능)' },
+    ];
+
+    const rootEditor = document.getElementById('editor');
+    const menu = document.getElementById('slash-menu');
+    const menuList = menu.querySelector('.list');
+    const dropMask = document.getElementById('drop-mask');
+    const fileInput = document.getElementById('hidden-file');
+
+    function $(s, r=document){ return r.querySelector(s); }
+    function ce(t,c){ const el=document.createElement(t); if(c) el.className=c; return el; }
+    function focusEditable(block, sel='.editable'){ const ed = block.querySelector(sel); if(ed){ ed.focus(); placeCaretAtEnd(ed); } }
+    function placeCaretAtEnd(node){ const r=document.createRange(); r.selectNodeContents(node); r.collapse(false); const s=window.getSelection(); s.removeAllRanges(); s.addRange(r); }
+    function stripSlash(text){ return text.replace(/^\/\S+\s*/, ''); }
+    function getText(el){ return el?el.innerText:''; }
+    function dataURLFromFile(file){ return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); }); }
+    async function processImageFile(file){
+      const srcURL = await dataURLFromFile(file);
+      if(!Settings.compress) return srcURL;
+      return new Promise(resolve=>{
+        const img=new Image(); img.onload=()=>{ const w=img.width,h=img.height; if(w<=Settings.maxWidth) return resolve(srcURL);
+          const scale=Settings.maxWidth/w, canvas=document.createElement('canvas'); canvas.width=Math.round(w*scale); canvas.height=Math.round(h*scale);
+          const ctx=canvas.getContext('2d'); ctx.drawImage(img,0,0,canvas.width,canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', Settings.quality));
+        }; img.src=srcURL;
       });
-      return div;
     }
 
-    // 초기 블록 하나
-    editor.appendChild(createBlock());
+    function createBlock(type='paragraph', content='', parent=rootEditor){
+      const block = ce('div','block'); block.dataset.type=type; block.draggable=true;
+      const handle=ce('div','handle'); handle.textContent='⋮⋮'; block.appendChild(handle);
+      renderBlock(block, type, content, parent); bindBlockEvents(block, parent); return block;
+    }
+    function ensureBlocks(el){ if(!el.classList.contains('blocks')) el.classList.add('blocks'); return el; }
+    function renderBlock(block, type, content, parent){
+      const handle=block.querySelector('.handle'); block.innerHTML=''; block.appendChild(handle);
+      if(type==='todo'){
+        const row=ce('div','todo-wrap'); const cb=document.createElement('input'); cb.type='checkbox';
+        const ed=ce('div','editable'); ed.contentEditable='true'; ed.innerText = content?.text || '';
+        cb.checked=!!content?.checked; row.appendChild(cb); row.appendChild(ed); block.appendChild(row);
+      } else if(type==='img'){
+        const wrap=ce('div','image-wrap'); const img=document.createElement('img'); img.src=content?.src||'';
+        const cap=ce('div','caption'); cap.contentEditable='true'; cap.innerText=content?.caption||'';
+        wrap.appendChild(img); wrap.appendChild(cap); block.appendChild(wrap);
+      } else if(type==='toggle'){
+        const wrap=ce('div','toggle'); const head=ce('div','toggle-head');
+        const caret=ce('div','toggle-caret'); caret.innerHTML='<span class="arrow">▸</span>';
+        const icon=ce('div','toggle-icon'); const iconVal=content?.icon||''; if(iconVal){ icon.textContent=iconVal; icon.classList.remove('empty'); } else { icon.textContent='🙂'; icon.classList.add('empty'); }
+        icon.title='아이콘(이모지) 설정/변경'; icon.addEventListener('click',(e)=>{e.stopPropagation(); const v=prompt('아이콘(이모지) 입력 (비우면 제거):', iconVal||''); if(v&&v.trim()){icon.textContent=v.trim(); icon.classList.remove('empty');} else {icon.textContent='🙂'; icon.classList.add('empty');} saveDoc();});
+        const title=ce('div','toggle-summary editable'); title.contentEditable='true'; title.innerText=content?.title||'';
+        head.appendChild(caret); head.appendChild(icon); head.appendChild(title);
+        const body=ce('div','toggle-body'); const childBlocks=ce('div','blocks'); ensureBlocks(childBlocks);
+        if(Array.isArray(content?.children)&&content.children.length){ content.children.forEach(ch=>{ const c=createBlock(ch.type||'paragraph', ch, childBlocks); childBlocks.appendChild(c); }); }
+        else { childBlocks.appendChild(createBlock('paragraph','', childBlocks)); }
+        body.appendChild(childBlocks);
+        const open=(content?.open!==false); if(!open) body.setAttribute('hidden',''); wrap.classList.toggle('open', open);
+        block.appendChild(wrap); block.appendChild(head); block.appendChild(body);
+        const toggleFn=()=>{ const nowOpen=!wrap.classList.contains('open'); wrap.classList.toggle('open', nowOpen); if(nowOpen) body.removeAttribute('hidden'); else body.setAttribute('hidden',''); saveDoc(); };
+        caret.addEventListener('click', toggleFn); head.addEventListener('click',(e)=>{ if(e.target===title || e.target===icon) return; toggleFn(); });
+        bindEditable(block, title, parent);
+      } else {
+        const ed=ce('div','editable'); ed.contentEditable='true'; ed.innerText=(typeof content==='string')?content:(content?.text||''); block.appendChild(ed);
+      }
+      if(type==='numbered') renumber(parent);
+    }
+    function bindBlockEvents(block, parent){
+      block.querySelectorAll('.editable, .caption').forEach(ed=> bindEditable(block, ed, parent));
+      const cb=block.querySelector('input[type="checkbox"]'); if(cb) cb.addEventListener('change', saveDoc);
+      block.addEventListener('dragstart',(e)=>{ block.classList.add('dragging'); e.dataTransfer.setData('text/plain','dragging'); e.dataTransfer.effectAllowed='move'; });
+      block.addEventListener('dragend',()=>{ block.classList.remove('dragging'); [...parent.children].forEach(b=>b.classList.remove('drag-over-before','drag-over-after')); renumber(parent); saveDoc(); });
+      block.addEventListener('dragover',(e)=>{ e.preventDefault(); const dragging=$('.block.dragging', parent); if(!dragging||dragging===block) return;
+        const r=block.getBoundingClientRect(), mid=r.top+r.height/2; if(e.clientY<mid){ block.classList.add('drag-over-before'); block.classList.remove('drag-over-after');}
+        else { block.classList.add('drag-over-after'); block.classList.remove('drag-over-before');}
+      });
+      block.addEventListener('dragleave',()=>{ block.classList.remove('drag-over-before','drag-over-after'); });
+      block.addEventListener('drop',(e)=>{ e.preventDefault(); const dragging=$('.block.dragging', parent); if(!dragging||dragging===block) return;
+        const before=block.classList.contains('drag-over-before'); block.classList.remove('drag-over-before','drag-over-after'); if(before) parent.insertBefore(dragging, block); else parent.insertBefore(dragging, block.nextSibling);
+      });
+    }
+    function bindEditable(block, editable, parent){
+      editable.addEventListener('input', ()=>{ saveDocDebounced(); });
+      editable.addEventListener('click', ()=>{ menuTargetBlock=block; menuTargetParent=parent; });
+    }
+    function renumber(container){ let n=0; [...container.children].forEach(b=>{ if(b.dataset.type==='numbered'){ n++; const ed=b.querySelector('.editable'); if(ed) ed.setAttribute('data-li', n);} else n=0; }); }
+    function addInitial(parent){ if(!parent.children.length) parent.appendChild(createBlock('paragraph','', parent)); }
+    function serializeContainer(container){
+      const out=[]; [...container.children].forEach(b=>{
+        const type=b.dataset.type;
+        if(type==='todo'){ out.push({type, text:getText(b.querySelector('.editable')), checked:b.querySelector('input[type="checkbox"]')?.checked||false}); }
+        else if(type==='img'){ out.push({type, src:b.querySelector('img')?.src||'', caption:getText(b.querySelector('.caption'))}); }
+        else if(type==='toggle'){
+          const open=b.querySelector('.toggle')?.classList.contains('open')||false;
+          const icon=b.querySelector('.toggle-icon')?.classList.contains('empty')?'':(b.querySelector('.toggle-icon')?.textContent||'');
+          const children=serializeContainer(b.querySelector('.toggle-body .blocks'));
+          out.push({type, title:getText(b.querySelector('.toggle-summary')), open, icon, children});
+        } else { out.push({type, text:getText(b.querySelector('.editable'))}); }
+      }); return out;
+    }
+    function serializeDoc(){ return serializeContainer(rootEditor); }
+    function deserializeContainer(container, arr){
+      container.innerHTML=''; arr.forEach(item=>{ const blk=createBlock(item.type||'paragraph', item, container); container.appendChild(blk); });
+      addInitial(container); renumber(container);
+    }
+    function deserializeDoc(arr){ deserializeContainer(rootEditor, arr); }
+    function saveDoc(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeDoc())); }
+    let saveTimer=null; function saveDocDebounced(){ clearTimeout(saveTimer); saveTimer=setTimeout(saveDoc,300); }
+    function loadDoc(){ const raw=localStorage.getItem(STORAGE_KEY); if(!raw){ rootEditor.appendChild(createBlock('paragraph','', rootEditor)); return; }
+      try{ const data=JSON.parse(raw); if(Array.isArray(data)) deserializeDoc(data); else rootEditor.appendChild(createBlock('paragraph','', rootEditor)); }catch{ rootEditor.appendChild(createBlock('paragraph','', rootEditor)); }
+    }
+
+    // ---- Slash menu (간소) ----
+    let activeMenuIndex=0, menuTargetBlock=null, menuTargetParent=rootEditor;
+    function openMenuFor(block, parent, query){ menuTargetBlock=block; menuTargetParent=parent;
+      const items = COMMANDS.filter(c => (c.id+' '+c.name).toLowerCase().includes(query.trim()));
+      menu.querySelector('.list').innerHTML = items.map((c,i)=>`<div class="item" data-id="${c.id}"><div><div class="name">${c.name}</div><div class="desc">${c.desc}</div></div><div class="kbd">Enter</div></div>`).join('');
+      const rect=block.getBoundingClientRect(); const sy=window.scrollY||document.documentElement.scrollTop; const sx=window.scrollX||document.documentElement.scrollLeft;
+      menu.style.top=(rect.top+rect.height+sy+6)+'px'; menu.style.left=(rect.left+sx+12)+'px'; menu.style.display='block'; activeMenuIndex=0;
+      [...menu.querySelectorAll('.item')].forEach((el,idx)=>{ el.addEventListener('mouseenter',()=>{activeMenuIndex=idx;}); el.addEventListener('mousedown',(e)=>{e.preventDefault(); confirmMenu(); saveDoc();}); });
+    }
+    function confirmMenu(){ const item = menu.querySelectorAll('.item')[activeMenuIndex]; if(!item)return; applyCommand(menuTargetBlock, item.dataset.id, menuTargetParent); closeMenu(); }
+    function closeMenu(){ menu.style.display='none'; menuList.innerHTML=''; activeMenuIndex=0; }
+    async function applyCommand(block, cmd, parent){
+      const ed = block.querySelector('.editable'); const before = ed ? ed.innerText : ''; const clean = stripSlash(before);
+      if(cmd==='img'){ fileInput.onchange = async ()=>{ if(fileInput.files && fileInput.files.length){ let after=block; for(const f of fileInput.files){ const src=await processImageFile(f); const imgBlock=createBlock('img',{src,caption:''},parent); parent.insertBefore(imgBlock, after.nextSibling); after=imgBlock;} fileInput.value=''; saveDoc(); } }; fileInput.click(); return; }
+      if(cmd==='toggle'){ block.dataset.type='toggle'; renderBlock(block, 'toggle', {title: clean, open:true, icon:'', children:[]}, parent); bindBlockEvents(block, parent); focusEditable(block, '.toggle-summary'); saveDoc(); return; }
+      block.dataset.type=cmd; renderBlock(block, cmd, clean, parent); bindBlockEvents(block, parent); focusEditable(block); saveDoc();
+    }
+
+    // ---- Drop upload ----
+    window.addEventListener('dragover',(e)=>{ e.preventDefault(); dropMask.style.display='block'; });
+    window.addEventListener('dragleave',(e)=>{ if(e.target===document||e.target===document.documentElement||e.target===document.body) dropMask.style.display='none'; });
+    window.addEventListener('drop', async (e)=>{ e.preventDefault(); dropMask.style.display='none';
+      const files=[...(e.dataTransfer?.files||[])]; if(files.length){ for(const f of files){ if(!f.type.startsWith('image/')) continue; const src=await processImageFile(f); const imgBlock=createBlock('img',{src,caption:''},rootEditor); rootEditor.appendChild(imgBlock);} saveDoc(); }
+    });
+
+    /* ======================== Bubble toolbar logic ======================== */
+    const bubble = document.getElementById('bubble');
+    const colorPop = document.getElementById('color-pop');
+    const btnColor = document.getElementById('btn-color');
+    const bgPop = document.getElementById('bg-pop');
+    const btnBg = document.getElementById('btn-bg');
+
+    function getSelectionInEditor(){
+      const sel = window.getSelection();
+      if(!sel || sel.rangeCount===0) return null;
+      const range = sel.getRangeAt(0);
+      const container = range.commonAncestorContainer.nodeType===1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
+      if(!rootEditor.contains(container)) return null;
+      if(sel.isCollapsed) return null;
+      return { sel, range };
+    }
+
+    function getBlocksFromRange(range){
+      const nodes = [];
+      const walker = document.createTreeWalker(rootEditor, NodeFilter.SHOW_ELEMENT, {
+        acceptNode(node){ return node.classList && node.classList.contains('block') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP; }
+      });
+      while(walker.nextNode()){
+        const b = walker.currentNode;
+        const r = document.createRange(); r.selectNodeContents(b);
+        if(!(range.compareBoundaryPoints(Range.END_TO_START, r) <= 0 || range.compareBoundaryPoints(Range.START_TO_END, r) >= 0)){
+          nodes.push(b);
+        }
+      }
+      if(nodes.length===0){ const b = (range.startContainer.nodeType===1?range.startContainer:range.startContainer.parentElement).closest('.block'); if(b) nodes.push(b); }
+      return nodes;
+    }
+
+    function showBubble(){
+      const s = getSelectionInEditor();
+      if(!s){ hideBubble(); return; }
+      const rect = s.range.getBoundingClientRect();
+      bubble.style.left = (rect.left + rect.width/2 + window.scrollX) + 'px';
+      bubble.style.top  = (rect.top + window.scrollY) + 'px';
+      bubble.style.display = 'flex';
+    }
+    function hideBubble(){
+      bubble.style.display = 'none';
+      colorPop.style.display = 'none';
+      bgPop.style.display = 'none';
+    }
+
+    document.addEventListener('selectionchange', ()=>{
+      const s = getSelectionInEditor();
+      if(!s){ hideBubble(); return; }
+      const startEl = s.range.startContainer.nodeType===1 ? s.range.startContainer : s.range.startContainer.parentElement;
+      const editable = startEl.closest('.editable, .caption');
+      if(editable){ showBubble(); } else { hideBubble(); }
+    });
+
+    function exec(cmd, val=null){
+      document.execCommand(cmd, false, val);
+      saveDocDebounced();
+    }
+
+    function createOrRemoveLink(){
+      const s = getSelectionInEditor(); if(!s) return;
+      const url = prompt('링크 URL을 입력하세요 (비우면 제거):', '');
+      if(url && url.trim()){
+        let link = url.trim();
+        if(!/^https?:\/\//i.test(link) && !/^mailto:/i.test(link)){ link = 'https://' + link; }
+        exec('createLink', link);
+        const sel = window.getSelection();
+        const range = sel.getRangeAt(0);
+        const container = range.commonAncestorContainer.nodeType===1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
+        (container.querySelectorAll('a')||[]).forEach(a=>{ if(a.getAttribute('href')===link){ a.target='_blank'; a.rel='noopener noreferrer'; }});
+      } else {
+        exec('unlink');
+      }
+    }
+
+    function applyTextColor(color){
+      if(color==='__clear__'){ exec('foreColor', '#222222'); }
+      else exec('foreColor', color);
+    }
+    function applyBgColor(color){
+      if(color==='__clear__'){ exec('hiliteColor', '#ffffff'); }   // 기본 배경으로 되돌림
+      else exec('hiliteColor', color);
+    }
+
+    // Inline code toggle: wrap/unwrap with <code class="inline-code">
+    function toggleInlineCode(){
+      const s = getSelectionInEditor(); if(!s) return;
+      const { sel, range } = s;
+      // If inside existing inline-code => unwrap
+      const startEl = range.startContainer.nodeType===1 ? range.startContainer : range.startContainer.parentElement;
+      const codeEl = startEl.closest('code.inline-code');
+      if(codeEl){
+        // unwrap
+        const parent = codeEl.parentNode;
+        while(codeEl.firstChild) parent.insertBefore(codeEl.firstChild, codeEl);
+        parent.removeChild(codeEl);
+        saveDocDebounced();
+        return;
+      }
+      // wrap
+      const wrapper = document.createElement('code');
+      wrapper.className = 'inline-code';
+      try{
+        // If the selection contains partially-selected non-text nodes, surroundContents throws.
+        const frag = range.extractContents();
+        wrapper.appendChild(frag);
+        range.insertNode(wrapper);
+        // Reselect wrapped content
+        sel.removeAllRanges();
+        const newRange = document.createRange();
+        newRange.selectNodeContents(wrapper);
+        sel.addRange(newRange);
+      }catch{
+        // Fallback: use execCommand with <code> — not standard, so just insert HTML
+        exec('insertHTML', `<code class="inline-code">${range.toString()}</code>`);
+      }
+      saveDocDebounced();
+    }
+
+    function toggleBlocksToToggleOrParagraph(){
+      const s = getSelectionInEditor(); if(!s) return;
+      const blocks = getBlocksFromRange(s.range);
+      blocks.forEach(b=>{
+        const parent = b.parentElement;
+        if(b.dataset.type==='toggle'){
+          b.dataset.type='paragraph';
+          renderBlock(b,'paragraph', getText(b.querySelector('.toggle-summary')) || getText(b.querySelector('.editable')) || '', parent);
+          bindBlockEvents(b, parent);
+        } else {
+          const text = getText(b.querySelector('.editable'));
+          b.dataset.type='toggle';
+          renderBlock(b, 'toggle', {title: text, open:true, icon:'', children:[]}, parent);
+          bindBlockEvents(b, parent);
+        }
+      });
+      saveDoc();
+    }
+
+    bubble.addEventListener('mousedown', (e)=>{ e.preventDefault(); }); // selection 유지
+    bubble.addEventListener('click', (e)=>{
+      const btn = e.target.closest('.btn'); if(!btn) return;
+      const cmd = btn.dataset.cmd;
+      if(cmd==='bold') return exec('bold');
+      if(cmd==='italic') return exec('italic');
+      if(cmd==='underline') return exec('underline');
+      if(cmd==='strikeThrough') return exec('strikeThrough');
+      if(cmd==='link') return createOrRemoveLink();
+      if(cmd==='highlight') return applyBgColor('#fff59d'); // 빠른 노랑 하이라이트
+      if(cmd==='inline-code') return toggleInlineCode();
+      if(cmd==='toggle-block') return toggleBlocksToToggleOrParagraph();
+    });
+
+    // Palettes
+    const togglePop = (el)=>{ el.style.display = (el.style.display==='grid'||el.style.display==='flex') ? 'none' : 'grid'; el.style.gridTemplateColumns='repeat(5, 20px)'; };
+    document.getElementById('btn-color').addEventListener('click', (e)=>{ e.stopPropagation(); togglePop(colorPop); bgPop.style.display='none'; });
+    document.getElementById('btn-bg').addEventListener('click', (e)=>{ e.stopPropagation(); togglePop(bgPop); colorPop.style.display='none'; });
+    colorPop.addEventListener('click', (e)=>{
+      const sw = e.target.closest('.swatch'); if(!sw) return;
+      const name = sw.dataset.name; if(name==='clear') applyTextColor('__clear__'); else applyTextColor(sw.dataset.color||'#222222');
+      colorPop.style.display='none';
+    });
+    bgPop.addEventListener('click', (e)=>{
+      const sw = e.target.closest('.swatch'); if(!sw) return;
+      const name = sw.dataset.name; if(name==='clear') applyBgColor('__clear__'); else applyBgColor(sw.dataset.color||'#fff59d');
+      bgPop.style.display='none';
+    });
+    document.addEventListener('click', (e)=>{ if(!bubble.contains(e.target)){ colorPop.style.display='none'; bgPop.style.display='none'; } });
+
+    // Expand/Collapse all
+    document.getElementById('expand-all').addEventListener('click', ()=> setToggles(true));
+    document.getElementById('collapse-all').addEventListener('click', ()=> setToggles(false));
+    function setToggles(open){
+      document.querySelectorAll('.block[data-type="toggle"]').forEach(tb=>{
+        const wrap = tb.querySelector('.toggle'); const body = tb.querySelector('.toggle-body');
+        if(!wrap || !body) return;
+        wrap.classList.toggle('open', open);
+        if(open) body.removeAttribute('hidden'); else body.setAttribute('hidden','');
+      });
+      saveDoc();
+    }
+    window.addEventListener('keydown', (e)=>{
+      if((e.ctrlKey||e.metaKey) && e.altKey && e.key===']'){ e.preventDefault(); setToggles(true); }
+      if((e.ctrlKey||e.metaKey) && e.altKey && e.key==='['){ e.preventDefault(); setToggles(false); }
+    });
+
+    function init(){
+      loadDoc();
+      // 선택 변경 시 버블 위치 조정은 selectionchange에서 처리
+      rootEditor.addEventListener('click', (e)=>{
+        const blk = e.target.closest('.block'); menuTargetBlock = blk || null; menuTargetParent = blk? blk.parentElement : rootEditor;
+        if(menuTargetParent && !menuTargetParent.classList.contains('blocks')) menuTargetParent = rootEditor;
+      });
+      // 슬래시 메뉴 키보드(간단)
+      window.addEventListener('keydown', (e)=>{
+        if(menu.style.display!=='block') return;
+        const items = menu.querySelectorAll('.item'); if(!items.length) return;
+        if(e.key==='ArrowDown'){ e.preventDefault(); activeMenuIndex=(activeMenuIndex+1)%items.length; }
+        if(e.key==='ArrowUp'){ e.preventDefault(); activeMenuIndex=(activeMenuIndex-1+items.length)%items.length; }
+        if(e.key==='Enter'){ e.preventDefault(); confirmMenu(); }
+        if(e.key==='Escape'){ e.preventDefault(); closeMenu(); }
+      });
+    }
+    init();
   </script>
 </body>
 </html>
