@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mini Notion Editor</title>
+  <style>
+    body { font-family: sans-serif; background:#f5f5f5; padding:20px; }
+    .block { background:#fff; margin:8px 0; padding:10px; border-radius:6px; }
+    .block[contenteditable="true"]:focus { outline:2px solid #0078ff; }
+  </style>
+</head>
+<body>
+  <div id="editor"></div>
+
+  <script>
+    const editor = document.getElementById('editor');
+
+    function createBlock(type='paragraph', content='') {
+      const div = document.createElement('div');
+      div.className = 'block';
+      div.contentEditable = true;
+      div.dataset.type = type;
+      div.innerHTML = content;
+      div.addEventListener('keydown', e => {
+        // Enter 눌렀을 때 새 블록 추가
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const newBlock = createBlock();
+          editor.insertBefore(newBlock, div.nextSibling);
+          newBlock.focus();
+        }
+        // Backspace로 비어있을 때 삭제
+        if (e.key === 'Backspace' && div.innerText.trim() === '') {
+          const prev = div.previousElementSibling;
+          div.remove();
+          prev?.focus();
+        }
+      });
+      return div;
+    }
+
+    // 초기 블록 하나
+    editor.appendChild(createBlock());
+  </script>
+</body>
+</html>
